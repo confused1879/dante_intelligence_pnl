@@ -362,10 +362,6 @@ def calculate_sensitivity_metrics(df):
 def run_sensitivity_analysis(base_params, param_ranges):
     """
     Run sensitivity analysis with given parameter ranges
-    
-    Args:
-        base_params (dict): Base parameters for the model
-        param_ranges (dict): Dictionary of parameters to vary with their ranges
     """
     results = []
     
@@ -382,7 +378,35 @@ def run_sensitivity_analysis(base_params, param_ranges):
         # Create parameter dictionary for this combination
         test_params = base_params.copy()
         for name, value in zip(param_names, combo):
-            test_params[name] = value
+            if name == "team_and_ops_monthly":
+                # Distribute the team_and_ops_monthly value across its components
+                current_total = (
+                    base_params.get('founder_salary', 0) +
+                    base_params.get('monthly_contractor_budget', 0) +
+                    base_params.get('office_rent_monthly', 0) +
+                    base_params.get('utilities_monthly', 0) +
+                    base_params.get('software_licenses_monthly', 0) +
+                    base_params.get('insurance_monthly', 0) +
+                    base_params.get('legal_accounting_monthly', 0) +
+                    base_params.get('wfh_stipend_monthly', 0) +
+                    base_params.get('travel_budget_monthly', 0)
+                )
+                
+                if current_total > 0:
+                    ratio = value / current_total
+                    test_params.update({
+                        'founder_salary': base_params.get('founder_salary', 0) * ratio,
+                        'monthly_contractor_budget': base_params.get('monthly_contractor_budget', 0) * ratio,
+                        'office_rent_monthly': base_params.get('office_rent_monthly', 0) * ratio,
+                        'utilities_monthly': base_params.get('utilities_monthly', 0) * ratio,
+                        'software_licenses_monthly': base_params.get('software_licenses_monthly', 0) * ratio,
+                        'insurance_monthly': base_params.get('insurance_monthly', 0) * ratio,
+                        'legal_accounting_monthly': base_params.get('legal_accounting_monthly', 0) * ratio,
+                        'wfh_stipend_monthly': base_params.get('wfh_stipend_monthly', 0) * ratio,
+                        'travel_budget_monthly': base_params.get('travel_budget_monthly', 0) * ratio
+                    })
+            else:
+                test_params[name] = value
         
         # Generate P&L with these parameters
         df_pnl = generate_video_analysis_pnl(**test_params)
@@ -452,7 +476,7 @@ def main():
         ### Lean Startup Team Structure
         
         **Phase 1 (Pre-$50k MRR):**
-        - Technical Founder/CTO (You)
+        - Technical Founder/CTO
         - Contractors via Upwork/similar platforms
         - Estimated contractor needs:
             - ML/Backend: 40-80 hours/month
@@ -564,15 +588,16 @@ def main():
         with col1:
             st.subheader("Market")
             months = st.slider("Projection Months", 12, 60, 24)
-            starting_coaches = st.number_input("Starting Coaches", 10, 1000, 50)
+            starting_coaches = st.number_input("Starting Coaches", 10, 1000, 20)
             monthly_growth_rate = st.slider("Monthly Growth Rate (%)", 0.0, 0.5, 0.05)
             churn_rate = st.slider("Monthly Churn Rate (%)", 0.0, 0.2, 0.03)
             target_market_size = st.number_input("Target Market Size (Coaches)", 1000, 100000, 50000)
             
             st.info("""
             **Market Size Note:** 
-            Targeting tennis coaches, academies, and college programs.
-            Typical coach analyzes 20-40 matches per month.
+            - Targeting tennis coaches, academies, and college programs.
+            - Globally, there are an estimated 149,110 tennis coaches
+            - Typical coach analyzes 20-40 matches per month.
             """)
         
         with col2:
@@ -602,9 +627,9 @@ def main():
             
             st.info("""
             **Volume Pricing:**
-            - Single match: $90
-            - 10 match package: $800 ($80/match)
-            - 100 matches: $7,500-$8,500 ($75-$85/match)
+            - Single match: \$90
+            - 10 match package: \$800 (\$80 per match)
+            - 100 matches: \$7,500-\$8,500 (\$75-\$85 per match)
             """)
     
     with tab2:
@@ -713,6 +738,16 @@ def main():
             office_rent_monthly = st.number_input("Monthly Office Rent ($)", 0, 10000, 1000,
                 help="Initial home office or co-working space")
             
+            # Add these new UI elements
+            utilities_monthly = st.number_input("Monthly Utilities ($)", 0, 2000, 500,
+                help="Utilities and internet costs")
+            software_licenses_monthly = st.number_input("Monthly Software Licenses ($)", 0, 2000, 500,
+                help="Software subscriptions and tools")
+            insurance_monthly = st.number_input("Monthly Insurance ($)", 0, 5000, 1500,
+                help="Business insurance costs")
+            legal_accounting_monthly = st.number_input("Monthly Legal/Accounting ($)", 0, 5000, 1500,
+                help="Legal and accounting services")
+            
             st.subheader("Benefits & Equipment")
             benefits_percent = st.slider("Benefits (% of salary)", 0.0, 0.4, 0.20,
                 help="Percentage of salary for benefits (when applicable)")
@@ -772,6 +807,10 @@ def main():
             
             # Office & Operations
             office_rent_monthly=office_rent_monthly,
+            utilities_monthly=utilities_monthly,
+            software_licenses_monthly=software_licenses_monthly,
+            insurance_monthly=insurance_monthly,
+            legal_accounting_monthly=legal_accounting_monthly,
             
             # Benefits & Equipment
             benefits_percent=benefits_percent,
@@ -974,46 +1013,76 @@ def main():
             "Development Months": {
                 "param": "development_months",
                 "current": development_months,
-                "min": 3,
-                "max": 12,
-                "is_integer": True
+                "min": 3.0,
+                "max": 12.0,
+                "is_integer": True,
+                "step": 1.0
             },
             "Monthly Growth Rate": {
                 "param": "monthly_growth_rate",
                 "current": monthly_growth_rate,
                 "min": 0.02,
                 "max": 0.15,
-                "is_integer": False
+                "is_integer": False,
+                "step": 0.01
             },
             "Monthly Churn Rate": {
                 "param": "churn_rate",
                 "current": churn_rate,
                 "min": 0.01,
                 "max": 0.10,
-                "is_integer": False
+                "is_integer": False,
+                "step": 0.01
             },
             "Starting Coaches": {
                 "param": "starting_coaches",
                 "current": starting_coaches,
-                "min": 20,
-                "max": 500,
-                "is_integer": True
+                "min": 20.0,
+                "max": 500.0,
+                "is_integer": True,
+                "step": 1.0
             },
             "Basic Plan Price": {
                 "param": "basic_plan_price",
                 "current": basic_plan_price,
-                "min": 150,
-                "max": 500,
-                "is_integer": False
+                "min": 150.0,
+                "max": 500.0,
+                "is_integer": False,
+                "step": 10.0
             },
             "Pay-per-Video Price": {
                 "param": "pay_per_video_price",
                 "current": pay_per_video_price,
-                "min": 50,
-                "max": 130,
-                "is_integer": False
+                "min": 50.0,
+                "max": 130.0,
+                "is_integer": False,
+                "step": 5.0
             }
         }
+
+        # After all UI elements are defined, add the Monthly Team & Operations parameter
+        if 'founder_salary' in locals():  # Check if UI elements are defined
+            available_params["Monthly Team & Operations"] = {
+                "param": "team_and_ops_monthly",
+                "current": (
+                    # Team costs
+                    founder_salary +
+                    monthly_contractor_budget +
+                    # Office & Operations
+                    office_rent_monthly +
+                    utilities_monthly +
+                    software_licenses_monthly +
+                    insurance_monthly +
+                    legal_accounting_monthly +
+                    # Benefits & Equipment
+                    wfh_stipend_monthly +
+                    travel_budget_monthly
+                ),
+                "min": 5000.0,
+                "max": 50000.0,
+                "is_integer": True,
+                "step": 1000.0
+            }
 
         # Let user select parameters to analyze
         selected_params = st.multiselect(
@@ -1037,13 +1106,15 @@ def main():
                     # Get min, max, and steps for each parameter
                     min_val = st.number_input(
                         f"Min {param_name}",
-                        value=param_info["min"],
-                        step=1 if param_info["is_integer"] else 0.01
+                        value=float(param_info["min"]),  # Convert to float
+                        step=param_info["step"],
+                        format="%.2f" if not param_info["is_integer"] else "%.0f"
                     )
                     max_val = st.number_input(
                         f"Max {param_name}",
-                        value=param_info["max"],
-                        step=1 if param_info["is_integer"] else 0.01
+                        value=float(param_info["max"]),  # Convert to float
+                        step=param_info["step"],
+                        format="%.2f" if not param_info["is_integer"] else "%.0f"
                     )
                     steps = st.slider(
                         f"Steps for {param_name}",
@@ -1083,7 +1154,16 @@ def main():
                         "starting_coaches": starting_coaches,
                         "basic_plan_price": basic_plan_price,
                         "pay_per_video_price": pay_per_video_price,
-                        # Add other necessary parameters...
+                        # Add all the team and ops parameters
+                        "founder_salary": founder_salary,
+                        "monthly_contractor_budget": monthly_contractor_budget,
+                        "office_rent_monthly": office_rent_monthly,
+                        "utilities_monthly": utilities_monthly,
+                        "software_licenses_monthly": software_licenses_monthly,
+                        "insurance_monthly": insurance_monthly,
+                        "legal_accounting_monthly": legal_accounting_monthly,
+                        "wfh_stipend_monthly": wfh_stipend_monthly,
+                        "travel_budget_monthly": travel_budget_monthly
                     }
 
                     # Run sensitivity analysis and store in session state
@@ -1095,33 +1175,13 @@ def main():
                 
                 # Display results
                 st.subheader("Sensitivity Analysis Results")
-                
-                # Parameter impact visualization
+                 # Parameter impact visualization
                 metric_to_analyze = st.selectbox(
                     "Select Metric to Analyze",
                     ["Total Investment", "Months to Breakeven", "Peak Monthly Revenue", 
                      "Year 1 Revenue", "Final Monthly Revenue", "Max Monthly Profit"]
                 )
 
-                # Create parallel coordinates plot
-                fig = go.Figure(data=
-                    go.Parcoords(
-                        line=dict(
-                            color=results_df[metric_to_analyze],
-                            colorscale='Viridis',
-                        ),
-                        dimensions=[
-                            dict(range=[results_df[col].min(), results_df[col].max()],
-                                 label=col,
-                                 values=results_df[col])
-                            for col in results_df.columns 
-                            if col not in ['Parameter', 'Parameter Value']
-                        ]
-                    )
-                )
-                
-                st.plotly_chart(fig)
-                
                 # Create tornado chart
                 st.subheader("Tornado Chart Analysis")
 
@@ -1194,6 +1254,36 @@ def main():
                 )
 
                 st.plotly_chart(fig_tornado, use_container_width=True)
+               
+                # Create parallel coordinates plot
+                fig = go.Figure(data=
+                    go.Parcoords(
+                        line=dict(
+                            color=results_df[metric_to_analyze],
+                            colorscale='Viridis',
+                        ),
+                        dimensions=[
+                            dict(
+                                range=[results_df[metric_to_analyze].min(), results_df[metric_to_analyze].max()],
+                                label=metric_to_analyze,
+                                values=results_df[metric_to_analyze]
+                            ),
+                            *[
+                                dict(
+                                    range=[results_df[results_df['Parameter'] == param]['Parameter Value'].min(),
+                                          results_df[results_df['Parameter'] == param]['Parameter Value'].max()],
+                                    label=param,
+                                    values=results_df[results_df['Parameter'] == param]['Parameter Value']
+                                )
+                                for param in results_df['Parameter'].unique()
+                            ]
+                        ]
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                
 
                 # Show summary statistics
                 st.subheader("Summary Statistics")
