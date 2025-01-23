@@ -476,7 +476,7 @@ def main():
         ### Lean Startup Team Structure
         
         **Phase 1 (Pre-$50k MRR):**
-        - Technical Founder/CTO
+        - Founder/CTO (or whatever title we decide)
         - Contractors via Upwork/similar platforms
         - Estimated contractor needs:
             - ML/Backend: 40-80 hours/month
