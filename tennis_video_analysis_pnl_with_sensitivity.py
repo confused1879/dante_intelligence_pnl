@@ -122,9 +122,31 @@ def generate_video_analysis_pnl(
         'licenses_permits': 500,      # Basic business licenses
         'trademark': 1000,           # Basic trademark registration
     },
+    # Federation & Academy Licensing
+    enable_enterprise_licensing=True,  # Toggle for enterprise licensing model
+    starting_enterprise_clients=1,     # Initial number of federation/academy clients
+    enterprise_monthly_growth=0.02,    # Monthly growth rate for enterprise clients
+    enterprise_churn_rate=0.01,        # Lower churn due to longer contracts
+    enterprise_license_tiers={
+        'small': {
+            'price': 999.99,           # Monthly price for small academies (up to 10 coaches)
+            'ratio': 0.5,              # 50% of enterprise clients are small academies
+            'videos_per_month': 200    # Average videos analyzed per month
+        },
+        'medium': {
+            'price': 2499.99,          # Monthly price for medium academies/federations (up to 30 coaches)
+            'ratio': 0.3,              # 30% are medium-sized
+            'videos_per_month': 600    # Average videos analyzed per month
+        },
+        'large': {
+            'price': 4999.99,          # Monthly price for large federations (unlimited coaches)
+            'ratio': 0.2,              # 20% are large federations
+            'videos_per_month': 1500   # Average videos analyzed per month
+        }
+    },
 ):
     """
-    Generate P&L including initial development phase
+    Generate P&L including initial development phase and enterprise licensing
     """
     total_months = months + development_months
     months_list = list(range(1, total_months + 1))
@@ -212,6 +234,70 @@ def generate_video_analysis_pnl(
         # Add Rippling costs to operating costs
         operating_costs[i] += rippling_monthly_base + (rippling_monthly_per_person * total_team_size)
     
+    # Enterprise client calculations
+    if enable_enterprise_licensing:
+        # Initialize all enterprise tracking arrays
+        enterprise_clients = [0] * development_months  # Start with zero during development
+        enterprise_clients.append(starting_enterprise_clients)  # Add initial clients at launch
+        
+        # Initialize tracking arrays with zeros for development phase
+        small_academy_clients = [0] * development_months
+        medium_academy_clients = [0] * development_months
+        large_federation_clients = [0] * development_months
+        small_academy_revenue = [0] * development_months
+        medium_academy_revenue = [0] * development_months
+        large_federation_revenue = [0] * development_months
+        enterprise_revenue = [0] * development_months
+        enterprise_videos = [0] * development_months
+        
+        # Calculate growth after development phase
+        for m in range(development_months + 1, total_months):
+            current_clients = enterprise_clients[-1]
+            new_clients = current_clients * enterprise_monthly_growth
+            churned_clients = current_clients * enterprise_churn_rate
+            enterprise_clients.append(max(0, current_clients + new_clients - churned_clients))
+        
+        # Calculate revenue and videos for operational phase
+        for clients in enterprise_clients[development_months:]:
+            # Calculate clients by tier
+            small_clients = clients * enterprise_license_tiers['small']['ratio']
+            medium_clients = clients * enterprise_license_tiers['medium']['ratio']
+            large_clients = clients * enterprise_license_tiers['large']['ratio']
+            
+            # Store client numbers
+            small_academy_clients.append(small_clients)
+            medium_academy_clients.append(medium_clients)
+            large_federation_clients.append(large_clients)
+            
+            # Calculate and store revenue by tier
+            small_rev = small_clients * enterprise_license_tiers['small']['price']
+            medium_rev = medium_clients * enterprise_license_tiers['medium']['price']
+            large_rev = large_clients * enterprise_license_tiers['large']['price']
+            
+            small_academy_revenue.append(small_rev)
+            medium_academy_revenue.append(medium_rev)
+            large_federation_revenue.append(large_rev)
+            
+            monthly_enterprise_revenue = small_rev + medium_rev + large_rev
+            monthly_enterprise_videos = (
+                small_clients * enterprise_license_tiers['small']['videos_per_month'] +
+                medium_clients * enterprise_license_tiers['medium']['videos_per_month'] +
+                large_clients * enterprise_license_tiers['large']['videos_per_month']
+            )
+            
+            enterprise_revenue.append(monthly_enterprise_revenue)
+            enterprise_videos.append(monthly_enterprise_videos)
+    else:
+        # Initialize all arrays with zeros if enterprise licensing is disabled
+        enterprise_revenue = [0] * total_months
+        enterprise_videos = [0] * total_months
+        small_academy_clients = [0] * total_months
+        medium_academy_clients = [0] * total_months
+        large_federation_clients = [0] * total_months
+        small_academy_revenue = [0] * total_months
+        medium_academy_revenue = [0] * total_months
+        large_federation_revenue = [0] * total_months
+    
     # Operational phase calculations
     current_coaches = starting_coaches
     for m in range(development_months, total_months):
@@ -264,13 +350,18 @@ def generate_video_analysis_pnl(
         month_marketing = calculate_marketing_budget(month_total_revenue, marketing_budget_monthly)
         marketing_spend[m] = month_marketing
         
-        # Calculate profits
+        # Calculate profits with all costs included
         gross_profit[m] = month_total_revenue - month_cogs
-        operating_profit[m] = gross_profit[m] - (
-            personnel_costs[m] +     # Staff & contractors
-            operating_costs[m] +     # Office, equipment, etc.
-            month_marketing  # Now using scaled marketing budget
+        
+        total_monthly_costs = (
+            month_cogs +            # Cost of goods sold
+            personnel_costs[m] +    # Staff & contractors
+            operating_costs[m] +    # Office, equipment, etc.
+            month_marketing +       # Marketing spend
+            infrastructure_costs[m] # Infrastructure costs
         )
+        
+        operating_profit[m] = month_total_revenue - total_monthly_costs
         net_income[m] = operating_profit[m] * (1 - tax_rate)  # Apply taxes
         
         # Track usage
@@ -286,6 +377,16 @@ def generate_video_analysis_pnl(
             travel_budget_monthly
         )
         
+        # Update total revenue and video processing calculations
+        total_revenue[m] += enterprise_revenue[m]
+        monthly_videos_list[m] += enterprise_videos[m]
+        
+        # Update processing costs for enterprise videos
+        processing_costs[m] += enterprise_videos[m] * (
+            inference_cost_per_video +
+            storage_cost_per_video
+        )
+    
     # Create DataFrame with all metrics
     data = {
         'Month': months_list,
@@ -333,15 +434,46 @@ def generate_video_analysis_pnl(
     data.update({
         # Cumulative Revenue
         'Cumulative Revenue': np.cumsum(total_revenue),
-        'Cumulative Costs': np.cumsum([x + y + z for x, y, z in zip(operating_costs, personnel_costs, infrastructure_costs)]),
-        'Cumulative Profit/Loss': np.cumsum(net_income),
+        'Cumulative Costs': np.cumsum([x + y + z + m + i for x, y, z, m, i in zip(
+            cogs_list,
+            operating_costs,
+            personnel_costs,
+            marketing_spend,
+            infrastructure_costs
+        )]),
+        'Cumulative Profit/Loss': [rev - cost for rev, cost in zip(
+            np.cumsum(total_revenue),
+            np.cumsum([x + y + z + m + i for x, y, z, m, i in zip(
+                cogs_list,
+                operating_costs,
+                personnel_costs,
+                marketing_spend,
+                infrastructure_costs
+            )])
+        )],
         
-        # Running cash position (negative shows required investment)
+        # Running cash position
         'Cash Position': np.cumsum(net_income),
-        'Investment Required': [-min(0, x) for x in np.cumsum(net_income)],  # Shows only negative cash position
-        
-        # Other cumulative metrics...
+        'Investment Required': [-min(0, x) for x in np.cumsum(net_income)]
     })
+    
+    # Add enterprise-specific metrics
+    data.update({
+        'Enterprise Revenue': enterprise_revenue,
+        'Enterprise Videos': enterprise_videos,
+        'Monthly Videos': monthly_videos_list,
+        'Small Academy Clients': small_academy_clients,
+        'Medium Academy Clients': medium_academy_clients,
+        'Large Federation Clients': large_federation_clients,
+        'Small Academy Revenue': small_academy_revenue,
+        'Medium Academy Revenue': medium_academy_revenue,
+        'Large Federation Revenue': large_federation_revenue,
+    })
+    
+    # Add validation check to ensure P&L is correct
+    for i in range(len(data['Cumulative Revenue'])):
+        if data['Cumulative Revenue'][i] < data['Cumulative Costs'][i]:
+            assert data['Cumulative Profit/Loss'][i] <= 0, f"Error: Month {i+1} shows positive P&L despite cumulative costs exceeding revenue"
     
     return pd.DataFrame(data)
 
@@ -390,7 +522,7 @@ def calculate_sensitivity_metrics(df):
     """Calculate key metrics from a P&L dataframe"""
     metrics = {
         'Total Investment': df['Investment Required'].max(),
-        'Months to Breakeven': next((i + 1 for i, val in enumerate(df['Cumulative Profit/Loss']) if val > 0), len(df)),
+        'Months to Breakeven': next((i + 1 for i, val in enumerate(df['Cumulative Profit/Loss']) if val > 0)),
         'Peak Monthly Revenue': df['Total Revenue'].max(),
         'Year 1 Revenue': df.iloc[:12]['Total Revenue'].sum(),
         'Final Monthly Revenue': df['Total Revenue'].iloc[-1],
@@ -670,6 +802,65 @@ def main():
             - 10 match package: \$800 (\$80 per match)
             - 100 matches: \$7,500-\$8,500 (\$75-\$85 per match)
             """)
+        
+        # Add Enterprise Licensing section after the existing columns
+        st.subheader("Enterprise Licensing")
+        enable_enterprise = st.checkbox("Enable Federation/Academy Licensing", value=True,
+            help="Include revenue from tennis federations and large academies")
+        
+        if enable_enterprise:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Small Academy License**")
+                small_academy_price = st.number_input("Monthly Price ($)", 500, 2000, 1000,
+                    help="Price for academies with up to 10 coaches")
+                small_academy_ratio = st.slider("% of Enterprise Clients", 0.0, 1.0, 0.5,
+                    help="Percentage of clients in this tier")
+                small_academy_videos = st.number_input("Monthly Videos", 100, 500, 200,
+                    help="Average videos analyzed per month")
+                
+            with col2:
+                st.markdown("**Medium Academy/Federation**")
+                medium_academy_price = st.number_input("Medium Tier Monthly Price ($)", 1500, 4000, 2500,
+                    help="Price for organizations with up to 30 coaches")
+                medium_academy_ratio = st.slider("% of Medium Clients", 0.0, 1.0, 0.3,
+                    help="Percentage of clients in this tier")
+                medium_academy_videos = st.number_input("Monthly Videos (Medium)", 300, 1000, 600,
+                    help="Average videos analyzed per month")
+                
+            with col3:
+                st.markdown("**Large Federation License**")
+                large_federation_price = st.number_input("Large Federation Monthly Price ($)", 3000, 8000, 5000,
+                    help="Price for large federations (unlimited coaches)")
+                large_federation_ratio = st.slider("% of Large Clients", 0.0, 1.0, 0.2,
+                    help="Percentage of clients in this tier")
+                large_federation_videos = st.number_input("Monthly Videos (Large)", 1000, 3000, 1500,
+                    help="Average videos analyzed per month")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                starting_enterprise = st.number_input("Initial Enterprise Clients", 0, 10, 1,
+                    help="Number of federation/academy clients at launch")
+                enterprise_growth = st.slider("Monthly Enterprise Growth Rate (%)", 0.0, 0.10, 0.02,
+                    help="Monthly growth rate for enterprise clients")
+            
+            with col2:
+                enterprise_churn = st.slider("Enterprise Churn Rate (%)", 0.0, 0.05, 0.01,
+                    help="Monthly churn rate for enterprise clients")
+            
+            st.info("""
+            **Enterprise Licensing Model:**
+            - Small Academy: Perfect for local tennis academies with limited coach count
+            - Medium Tier: Ideal for larger academies and small national federations
+            - Large Federation: Unlimited usage for major tennis organizations
+            
+            Each tier includes:
+            - Bulk video analysis
+            - Advanced analytics dashboard
+            - Priority support
+            - Custom branding options
+            """)
     
     with tab2:
         st.header("Technical Infrastructure")
@@ -942,6 +1133,28 @@ def main():
                 'licenses_permits': licenses_permits,
                 'trademark': trademark_cost
             },
+            # Federation & Academy Licensing
+            enable_enterprise_licensing=enable_enterprise,
+            starting_enterprise_clients=starting_enterprise if enable_enterprise else 0,
+            enterprise_monthly_growth=enterprise_growth if enable_enterprise else 0,
+            enterprise_churn_rate=enterprise_churn if enable_enterprise else 0,
+            enterprise_license_tiers={
+                'small': {
+                    'price': small_academy_price,
+                    'ratio': small_academy_ratio,
+                    'videos_per_month': small_academy_videos
+                },
+                'medium': {
+                    'price': medium_academy_price,
+                    'ratio': medium_academy_ratio,
+                    'videos_per_month': medium_academy_videos
+                },
+                'large': {
+                    'price': large_federation_price,
+                    'ratio': large_federation_ratio,
+                    'videos_per_month': large_federation_videos
+                }
+            } if enable_enterprise else None,
         )
         
         # Development phase visualization
@@ -975,18 +1188,35 @@ def main():
             ]])
         
         with metrics_tab2:
+            # Create a revenue breakdown chart including enterprise revenue
+            st.subheader("Revenue Breakdown")
             st.line_chart(df_pnl[[
                 'Subscription Revenue',
-                'Pay-per-Video Revenue', 
+                'Pay-per-Video Revenue',
+                'Enterprise Revenue',  # Add enterprise revenue
                 'Total Revenue'
             ]])
             
-            # Add contractor utilization metrics
-            st.subheader("Contractor Utilization")
-            st.line_chart(df_pnl[[
-                'Contractor Hours',
-                'Contractor Costs'
-            ]])
+            # Add enterprise metrics section
+            if enable_enterprise:
+                st.subheader("Enterprise Metrics")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.line_chart(df_pnl[[
+                        'Small Academy Clients',
+                        'Medium Academy Clients',
+                        'Large Federation Clients'
+                    ]])
+                    st.caption("Enterprise Client Growth by Tier")
+                
+                with col2:
+                    st.line_chart(df_pnl[[
+                        'Small Academy Revenue',
+                        'Medium Academy Revenue',
+                        'Large Federation Revenue'
+                    ]])
+                    st.caption("Enterprise Revenue by Tier")
         
         with metrics_tab3:
             st.line_chart(df_pnl[[
@@ -1017,70 +1247,115 @@ def main():
     # New Investment Analysis tab
     with tab5:
         st.header("Investment Analysis")
-        # Show burn rates
+        # Show burn rates with enterprise costs and revenue included
         st.subheader("Burn Rate Analysis")
-        dev_burn_rate = abs(df_pnl.iloc[:development_months]['Net Income'].mean())
-        operational_burn_rate = abs(df_pnl[df_pnl['Net Income'] < 0]['Net Income'].mean())
         
-        col1, col2 = st.columns(2)
+        # Development phase burn
+        dev_phase_costs = df_pnl.iloc[:development_months]
+        dev_burn_rate = abs(dev_phase_costs['Net Income'].mean()) if len(dev_phase_costs) > 0 else 0
+        
+        # Calculate operational burn rate only for the operational phase
+        operational_phase = df_pnl.iloc[development_months:]  # Get data after development
+        
+        # Find the first month of positive cumulative profit (breakeven)
+        breakeven_index = next(
+            (i for i, val in enumerate(operational_phase['Cumulative Profit/Loss']) if val > 0),
+            len(operational_phase)
+        )
+        
+        # Calculate burn rate using months until breakeven
+        burn_period = operational_phase.iloc[:breakeven_index]
+        
+              
+        # Calculate operational burn rate
+        operational_burn_rate = abs(burn_period['Net Income'].mean()) if len(burn_period) > 0 else 0
+        
+        # Calculate enterprise-specific metrics for burn period
+        if enable_enterprise and len(burn_period) > 0:
+            enterprise_burn_contribution = burn_period['Enterprise Revenue'].mean()
+            total_revenue = burn_period['Total Revenue'].sum()
+            if total_revenue > 0:
+                enterprise_revenue_ratio = burn_period['Enterprise Revenue'].sum() / total_revenue
+                enterprise_cost_contribution = burn_period['Processing Costs'].mean() * enterprise_revenue_ratio
+            else:
+                enterprise_revenue_ratio = 0
+                enterprise_cost_contribution = 0
+
+        # Display metrics
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(
                 "Development Phase Burn Rate",
                 f"${dev_burn_rate:,.0f}/month",
-                help="Average monthly cash burn during development"
+                help="Average monthly cash burn during development (including setup costs)"
             )
         with col2:
             st.metric(
                 "Operational Burn Rate",
                 f"${operational_burn_rate:,.0f}/month",
-                help="Average monthly cash burn until breakeven"
+                help="Average monthly cash burn from launch until breakeven"
             )
+            if len(burn_period) > 0:
+                st.caption(f"Burn period: {len(burn_period)} months")
+        
+        if enable_enterprise:
+            with col3:
+                st.metric(
+                    "Enterprise Revenue Offset",
+                    f"${enterprise_burn_contribution:,.0f}/month",
+                    help="Average monthly enterprise revenue during burn period"
+                )
+            
+            # Only show enterprise impact if there are actual numbers to report
+            if enterprise_burn_contribution > 0 or enterprise_cost_contribution > 0:
+                st.info(f"""
+                **Enterprise Impact on Burn Rate:**
+                - Enterprise revenue reduces burn rate by ${enterprise_burn_contribution:,.0f}/month
+                - Processing costs for enterprise videos: ${enterprise_cost_contribution:,.0f}/month
+                - Net impact: ${(enterprise_burn_contribution - enterprise_cost_contribution):,.0f}/month
+                """)
 
         # Calculate and display key investment metrics right after burn rates
         total_investment = df_pnl['Investment Required'].max()
         dev_phase_cost = abs(df_pnl.iloc[:development_months]['Net Income'].sum())
         
-        # Find breakeven month
+        # Calculate breakeven point consistently
+        dev_phase_costs = df_pnl.iloc[:development_months]
+        operational_phase = df_pnl.iloc[development_months:]
+        
+        # Calculate total investment needed to recover
+        cumulative_investment = abs(dev_phase_costs['Net Income'].sum())
+        
+        
+        
+        # Find breakeven point
         breakeven_month = None
-        for i, row in df_pnl.iterrows():
-            if row['Cumulative Profit/Loss'] > 0:
+        running_total = cumulative_investment
+        
+        for i, row in operational_phase.iterrows():
+                       
+            if running_total <= 0:  # We've recovered our investment
                 breakeven_month = i + 1
                 break
-
-        # Display investment metrics in columns
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric(
-                "Total Investment Required",
-                f"${total_investment:,.0f}",
-                help="Maximum cumulative negative cash flow (peak funding needed)"
-            )
+        
+        # Display metrics
+        if breakeven_month:
+            months_to_profit = breakeven_month  # This is already relative to operational phase
+            
+            # Calculate actual breakeven date
+            current_date = pd.Timestamp.now()
+            breakeven_date = current_date + pd.DateOffset(months=breakeven_month + development_months)
             
             st.metric(
-                "Development Phase Cost",
-                f"${dev_phase_cost:,.0f}",
-                help="Total cost during initial development phase"
+                "Months to Breakeven",
+                f"{months_to_profit} months after launch",
+                help="Time until cumulative profit becomes positive (after development)"
             )
-        
-        with col2:
-            if breakeven_month:
-                months_to_profit = breakeven_month
-                st.metric(
-                    "Months to Breakeven",
-                    f"{months_to_profit} months",
-                    help="Time until cumulative profit becomes positive"
-                )
-                st.metric(
-                    "Breakeven Date",
-                    f"{pd.Timestamp.now().strftime('%Y-%m')[:7]} + {months_to_profit} months",
-                    help="Approximate calendar date of breakeven"
-                )
-            else:
-                st.metric(
-                    "Months to Breakeven",
-                    "Not reached",
-                    help="Business does not reach breakeven in projection period"
-                )
+            st.metric(
+                "Breakeven Date",
+                breakeven_date.strftime('%B %Y'),
+                help=f"Estimated breakeven in {breakeven_month + development_months} months total (including {development_months} months development)"
+            )
 
         st.info("""
         **Understanding the Investment Metrics:**
@@ -1103,13 +1378,30 @@ def main():
                 'Cumulative Profit/Loss'
             ]])
             
-            # Add data table for cumulative metrics
+            # Add data table for cumulative metrics with revenue breakdown
             st.subheader("Cumulative Metrics Data")
             cumulative_data = df_pnl[[
                 'Cumulative Revenue',
                 'Cumulative Costs',
-                'Cumulative Profit/Loss'
+                'Cumulative Profit/Loss',
+                'Enterprise Revenue',          # Add enterprise revenue
+                'Subscription Revenue',        # Add individual revenue streams
+                'Pay-per-Video Revenue',
+                'Total Revenue'
             ]].round(2)
+            
+            # Rename columns for clarity
+            cumulative_data.columns = [
+                'Cumulative Revenue',
+                'Cumulative Costs',
+                'Cumulative Profit/Loss',
+                'Enterprise Revenue',
+                'Subscription Revenue',
+                'Pay-per-Video Revenue',
+                'Total Monthly Revenue'
+            ]
+            
+            # Add month numbers as index
             cumulative_data.index = [f"Month {i+1}" for i in range(len(cumulative_data))]
             st.dataframe(cumulative_data.style.format("${:,.2f}"))
             
@@ -1119,7 +1411,7 @@ def main():
             # Find breakeven month
             breakeven_month = None
             for i, row in df_pnl.iterrows():
-                if row['Cumulative Profit/Loss'] > 0:
+                if row['Cumulative Profit/Loss'] > 0 and i >= development_months:
                     breakeven_month = i + 1
                     break
             
@@ -1141,16 +1433,21 @@ def main():
             
             with col2:
                 if breakeven_month:
-                    months_to_profit = breakeven_month
+                    months_to_profit = breakeven_month - development_months  # Months after launch
+                    
+                    # Calculate actual breakeven date
+                    current_date = pd.Timestamp.now()
+                    breakeven_date = current_date + pd.DateOffset(months=breakeven_month)
+                    
                     st.metric(
                         "Months to Breakeven",
-                        f"{months_to_profit} months",
-                        help="Time until cumulative profit becomes positive"
+                        f"{months_to_profit} months after launch",
+                        help="Time until cumulative profit becomes positive (after development)"
                     )
                     st.metric(
                         "Breakeven Date",
-                        f"{pd.Timestamp.now().strftime('%Y-%m')[:7]} + {months_to_profit} months",
-                        help="Approximate calendar date of breakeven"
+                        breakeven_date.strftime('%B %Y'),  # Format as 'Month Year'
+                        help=f"Estimated breakeven in {breakeven_month} months (including {development_months} months development)"
                     )
                 else:
                     st.metric(
@@ -1280,6 +1577,42 @@ def main():
                 "step": 1000.0
             }
 
+        # Add enterprise parameters
+        available_params.update({
+            "Enterprise Growth Rate": {
+                "param": "enterprise_monthly_growth",
+                "current": enterprise_growth if enable_enterprise else 0.02,
+                "min": 0.01,
+                "max": 0.10,
+                "is_integer": False,
+                "step": 0.01
+            },
+            "Small Academy Price": {
+                "param": "small_academy_price",
+                "current": small_academy_price if enable_enterprise else 1000,
+                "min": 500.0,
+                "max": 2000.0,
+                "is_integer": False,
+                "step": 100.0
+            },
+            "Medium Academy Price": {
+                "param": "medium_academy_price",
+                "current": medium_academy_price if enable_enterprise else 2500,
+                "min": 1500.0,
+                "max": 4000.0,
+                "is_integer": False,
+                "step": 250.0
+            },
+            "Large Federation Price": {
+                "param": "large_federation_price",
+                "current": large_federation_price if enable_enterprise else 5000,
+                "min": 3000.0,
+                "max": 8000.0,
+                "is_integer": False,
+                "step": 500.0
+            }
+        })
+
         # Let user select parameters to analyze
         selected_params = st.multiselect(
             "Select parameters to analyze (max 4 recommended)",
@@ -1401,7 +1734,7 @@ def main():
                         'Min Impact': min_impact,
                         'Max Impact': max_impact,
                         'Absolute Impact': max(abs(min_impact), abs(max_impact))
-                    })
+                })
 
                 # Convert to DataFrame and sort by impact
                 tornado_df = pd.DataFrame(tornado_data)
@@ -1461,8 +1794,8 @@ def main():
                         dimensions=[
                             dict(
                                 range=[results_df[metric_to_analyze].min(), results_df[metric_to_analyze].max()],
-                                label=metric_to_analyze,
-                                values=results_df[metric_to_analyze]
+                                      label=metric_to_analyze,
+                                      values=results_df[metric_to_analyze]
                             ),
                             *[
                                 dict(
