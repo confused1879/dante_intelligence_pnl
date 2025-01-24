@@ -108,6 +108,20 @@ def generate_video_analysis_pnl(
     contractor_ml_rate=75,
     contractor_frontend_rate=60,
     monthly_contractor_budget=5000,
+    
+    # Legal & HR Support
+    legal_monthly_retainer=1000,     # Basic legal services retainer
+    hr_monthly_retainer=500,         # Fractional HR support
+    rippling_monthly_base=40,        # Rippling base monthly fee
+    rippling_monthly_per_person=8,   # Rippling per person monthly fee
+    company_setup_costs={            # One-time company setup costs
+        'incorporation': 500,         # Delaware C-Corp filing
+        'legal_setup': 2500,         # Initial legal documentation
+        'accounting_setup': 1000,     # Accounting system setup
+        'banking_setup': 200,         # Business banking setup
+        'licenses_permits': 500,      # Basic business licenses
+        'trademark': 1000,           # Basic trademark registration
+    },
 ):
     """
     Generate P&L including initial development phase
@@ -172,6 +186,31 @@ def generate_video_analysis_pnl(
         gross_profit[m] = 0
         operating_profit[m] = -operating_costs[m]
         net_income[m] = operating_profit[m]
+    
+    # Add company setup costs to first month's expenses
+    if len(operating_costs) > 0:
+        operating_costs[0] += sum(company_setup_costs.values())
+
+    # Add monthly legal and HR costs to operating costs
+    for i in range(total_months):
+        operating_costs[i] += legal_monthly_retainer + hr_monthly_retainer
+    
+    # Calculate Rippling costs based on team size
+    for i in range(total_months):
+        # Calculate total team size (including contractors)
+        total_team_size = 1  # Start with founder
+        if i >= development_months:  # Add team members after development phase
+            total_team_size += (
+                ml_engineers +
+                data_scientists +
+                backend_developers +
+                frontend_developers +
+                sales_staff +
+                support_staff
+            )
+        
+        # Add Rippling costs to operating costs
+        operating_costs[i] += rippling_monthly_base + (rippling_monthly_per_person * total_team_size)
     
     # Operational phase calculations
     current_coaches = starting_coaches
@@ -668,10 +707,79 @@ def main():
     with tab3:
         st.header("Team & Operations")
         
-        
         col1, col2, col3 = st.columns(3)
         
         with col1:
+            st.subheader("Legal & HR Support")
+            legal_monthly_retainer = st.number_input(
+                "Monthly Legal Retainer ($)", 
+                0, 5000, 1000,
+                help="Basic legal services and compliance support"
+            )
+            hr_monthly_retainer = st.number_input(
+                "Monthly HR Support ($)", 
+                0, 2000, 500,
+                help="Fractional HR services and compliance"
+            )
+            
+            st.subheader("HR Software")
+            rippling_monthly_base = st.number_input(
+                "Rippling Base Monthly Fee ($)", 
+                0, 200, 40,
+                help="Rippling platform base monthly fee"
+            )
+            rippling_monthly_per_person = st.number_input(
+                "Rippling Per Person Monthly Fee ($)", 
+                0, 50, 8,
+                help="Additional monthly fee per team member"
+            )
+            
+            st.subheader("Company Setup Costs")
+            incorporation_cost = st.number_input(
+                "Incorporation Costs ($)", 
+                0, 2000, 500,
+                help="Delaware C-Corp filing fees"
+            )
+            legal_setup = st.number_input(
+                "Legal Setup ($)", 
+                0, 5000, 2500,
+                help="Initial legal documentation and agreements"
+            )
+            accounting_setup = st.number_input(
+                "Accounting Setup ($)", 
+                0, 2000, 1000,
+                help="Accounting system and initial setup"
+            )
+            banking_setup = st.number_input(
+                "Banking Setup ($)", 
+                0, 500, 200,
+                help="Business banking and payment processing setup"
+            )
+            licenses_permits = st.number_input(
+                "Licenses & Permits ($)", 
+                0, 1000, 500,
+                help="Basic business licenses and permits"
+            )
+            trademark_cost = st.number_input(
+                "Trademark Registration ($)", 
+                0, 2000, 1000,
+                help="Basic trademark registration costs"
+            )
+
+            # Add info box explaining these costs
+            st.info("""
+            **Legal & HR Support:**
+            - Legal retainer covers basic contract review, compliance, and legal guidance
+            - HR support includes policy development, compliance, and basic employee relations
+            - Rippling provides payroll, benefits, and HR management automation
+            
+            **Company Setup:**
+            - One-time costs for proper business formation
+            - Includes essential legal, banking, and compliance setup
+            - Trademark protection for brand and IP
+            """)
+
+        with col2:
             st.subheader("Technical Team")
             
             # Founder/CTO Compensation
@@ -694,7 +802,7 @@ def main():
             - Gradually reduce contractor reliance
             """)
         
-        with col2:
+        with col3:
             st.subheader("Future Hires (Post-$50k MRR)")
             show_future_hires = st.checkbox("Show Future Hire Planning", value=False)
             
@@ -733,7 +841,6 @@ def main():
             - Third: Sales/Business Development
             """)
         
-        with col3:
             st.subheader("Office & Equipment")
             office_rent_monthly = st.number_input("Monthly Office Rent ($)", 0, 10000, 1000,
                 help="Initial home office or co-working space")
@@ -820,7 +927,21 @@ def main():
             desk_setup_cost=desk_setup_cost,
             
             # Marketing
-            marketing_budget_monthly=marketing_budget_monthly
+            marketing_budget_monthly=marketing_budget_monthly,
+            
+            # Legal & HR Support
+            legal_monthly_retainer=legal_monthly_retainer,
+            hr_monthly_retainer=hr_monthly_retainer,
+            rippling_monthly_base=rippling_monthly_base,
+            rippling_monthly_per_person=rippling_monthly_per_person,
+            company_setup_costs={
+                'incorporation': incorporation_cost,
+                'legal_setup': legal_setup,
+                'accounting_setup': accounting_setup,
+                'banking_setup': banking_setup,
+                'licenses_permits': licenses_permits,
+                'trademark': trademark_cost
+            },
         )
         
         # Development phase visualization
@@ -914,6 +1035,60 @@ def main():
                 f"${operational_burn_rate:,.0f}/month",
                 help="Average monthly cash burn until breakeven"
             )
+
+        # Calculate and display key investment metrics right after burn rates
+        total_investment = df_pnl['Investment Required'].max()
+        dev_phase_cost = abs(df_pnl.iloc[:development_months]['Net Income'].sum())
+        
+        # Find breakeven month
+        breakeven_month = None
+        for i, row in df_pnl.iterrows():
+            if row['Cumulative Profit/Loss'] > 0:
+                breakeven_month = i + 1
+                break
+
+        # Display investment metrics in columns
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(
+                "Total Investment Required",
+                f"${total_investment:,.0f}",
+                help="Maximum cumulative negative cash flow (peak funding needed)"
+            )
+            
+            st.metric(
+                "Development Phase Cost",
+                f"${dev_phase_cost:,.0f}",
+                help="Total cost during initial development phase"
+            )
+        
+        with col2:
+            if breakeven_month:
+                months_to_profit = breakeven_month
+                st.metric(
+                    "Months to Breakeven",
+                    f"{months_to_profit} months",
+                    help="Time until cumulative profit becomes positive"
+                )
+                st.metric(
+                    "Breakeven Date",
+                    f"{pd.Timestamp.now().strftime('%Y-%m')[:7]} + {months_to_profit} months",
+                    help="Approximate calendar date of breakeven"
+                )
+            else:
+                st.metric(
+                    "Months to Breakeven",
+                    "Not reached",
+                    help="Business does not reach breakeven in projection period"
+                )
+
+        st.info("""
+        **Understanding the Investment Metrics:**
+        - Total Investment Required: Maximum funding needed before becoming cash flow positive
+        - Development Phase Cost: Total spend during initial product development
+        - Months to Breakeven: Time until cumulative revenue exceeds cumulative costs
+        - Breakeven Date: Estimated calendar date when business becomes profitable
+        """)
         
         # Move investment analysis to new tab
         investment_tab1, investment_tab2 = st.tabs(["Cumulative Metrics", "Monthly Cash Flow"])
@@ -921,12 +1096,22 @@ def main():
         with investment_tab1:
             st.subheader("Investment Requirements & Breakeven")
             
-            # Show cumulative P&L
+            # Show cumulative P&L chart
             st.line_chart(df_pnl[[
                 'Cumulative Revenue',
                 'Cumulative Costs',
                 'Cumulative Profit/Loss'
             ]])
+            
+            # Add data table for cumulative metrics
+            st.subheader("Cumulative Metrics Data")
+            cumulative_data = df_pnl[[
+                'Cumulative Revenue',
+                'Cumulative Costs',
+                'Cumulative Profit/Loss'
+            ]].round(2)
+            cumulative_data.index = [f"Month {i+1}" for i in range(len(cumulative_data))]
+            st.dataframe(cumulative_data.style.format("${:,.2f}"))
             
             # Calculate key investment metrics
             total_investment = df_pnl['Investment Required'].max()
@@ -947,7 +1132,6 @@ def main():
                     help="Maximum cumulative negative cash flow (peak funding needed)"
                 )
                 
-                # Add development cost breakdown
                 dev_phase_cost = abs(df_pnl.iloc[:development_months]['Net Income'].sum())
                 st.metric(
                     "Development Phase Cost",
@@ -974,14 +1158,6 @@ def main():
                         "Not reached",
                         help="Business does not reach breakeven in projection period"
                     )
-            
-            st.info("""
-            **Understanding the Investment Metrics:**
-            - Total Investment Required: Maximum funding needed before becoming cash flow positive
-            - Development Phase Cost: Total spend during initial product development
-            - Months to Breakeven: Time until cumulative revenue exceeds cumulative costs
-            - Breakeven Date: Estimated calendar date when business becomes profitable
-            """)
         
         with investment_tab2:
             st.subheader("Cash Flow Analysis")
@@ -992,7 +1168,18 @@ def main():
                 'Gross Profit'
             ]])
             
-            # Add cumulative profit metrics
+            # Add data table for monthly cash flows
+            st.subheader("Monthly Cash Flow Data")
+            cash_flow_data = df_pnl[[
+                'Net Income',
+                'Operating Profit',
+                'Gross Profit'
+            ]].round(2)
+            # Add month numbers as index
+            cash_flow_data.index = [f"Month {i+1}" for i in range(len(cash_flow_data))]
+            st.dataframe(cash_flow_data.style.format("${:,.2f}"))
+            
+            # Show cumulative profit metrics chart
             st.subheader("Cumulative Profit Metrics")
             st.line_chart(df_pnl[[
                 'Cumulative Revenue',
@@ -1000,7 +1187,16 @@ def main():
                 'Cumulative Profit/Loss'
             ]])
             
-            
+            # Add data table for cumulative profit metrics
+            st.subheader("Cumulative Profit Data")
+            cumulative_profit_data = df_pnl[[
+                'Cumulative Revenue',
+                'Cumulative Costs',
+                'Cumulative Profit/Loss'
+            ]].round(2)
+            # Add month numbers as index
+            cumulative_profit_data.index = [f"Month {i+1}" for i in range(len(cumulative_profit_data))]
+            st.dataframe(cumulative_profit_data.style.format("${:,.2f}"))
 
     with tab6:
         st.header("Sensitivity Analysis Configuration")
@@ -1289,6 +1485,34 @@ def main():
                 st.subheader("Summary Statistics")
                 summary_stats = results_df.groupby('Parameter')[metric_to_analyze].agg(['min', 'mean', 'max'])
                 st.dataframe(summary_stats)
+                
+                # Add detailed results table
+                st.subheader("Detailed Sensitivity Analysis Results")
+                # Pivot the results to show all metrics for each parameter value
+                detailed_results = results_df.pivot_table(
+                    index=['Parameter', 'Parameter Value'],
+                    values=[
+                        'Total Investment',
+                        'Months to Breakeven',
+                        'Peak Monthly Revenue',
+                        'Year 1 Revenue',
+                        'Final Monthly Revenue',
+                        'Max Monthly Profit'
+                    ],
+                    aggfunc='first'
+                ).round(2)
+                
+                # Format the table
+                st.dataframe(
+                    detailed_results.style.format({
+                        'Total Investment': '${:,.2f}',
+                        'Peak Monthly Revenue': '${:,.2f}',
+                        'Year 1 Revenue': '${:,.2f}',
+                        'Final Monthly Revenue': '${:,.2f}',
+                        'Max Monthly Profit': '${:,.2f}',
+                        'Months to Breakeven': '{:.1f}'
+                    })
+                )
 
         else:
             st.warning("Please select at least one parameter to analyze")
